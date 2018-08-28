@@ -6,21 +6,22 @@
 
 #include "STM32L1xx.h" /* Microcontroller information */
 
-void delay();
+void delay(void);
 void count(unsigned char direction);
-void setup_pins();
+void setup_pins(void);
 
 unsigned char toggle;
 
 int main() {
   unsigned char status = 0; // start/stop
   unsigned char direction = 0; // inital direction
+  toggle = 0;
   
   setup_pins();
   
   while(1) {
     status = (GPIOA->IDR & 0x00000001); //PA1
-    direction = (GPIOA->IDR & 0x00000010); //PA2;
+    direction = (GPIOA->IDR & 0x00000002); //PA2;
     if (status == 1) {
       count(direction);
     }
@@ -32,10 +33,10 @@ int main() {
 /* Delay function - do nothing for about 1/2 second */
 /*----------------------------------------------------------*/
 void delay () {
-  int i,j,n;
+  int i,j;
   for (i=0; i<10; i++) { //outer loop
     for (j=0; j<20000; j++) { //inner loop
-      n = j; //dummy operation for single-step test
+      asm("nop"); //dummy operation for single-step test
     } //do nothing
   }
 }
@@ -51,14 +52,14 @@ void count(unsigned char direction) {
     toggle = (toggle + (10 - 1)) % 10;
   }
   
-  GPIOC->BSRR |= (~toggle & 0x0F) < 4; // clear bits
+  GPIOC->BSRR |= (~toggle & 0x0F) << 16; // clear bits
   GPIOC->BSRR |= (toggle & 0x0F); // write bits
 }
 
 /*---------------------------------------------------*/
 /* Initialize GPIO pins used in the program */
 /*---------------------------------------------------*/
-void PinSetup () {
+void setup_pins () {
   /* Configure PA1 and PA2 as input pin to read push button */
   RCC->AHBENR |= 0x01; /* Enable GPIOA clock (bit 0) */
   GPIOA->MODER &= ~(0x0000003C); /* General purpose input mode */
