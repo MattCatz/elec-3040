@@ -9,6 +9,7 @@
 void delay(void);
 void count(unsigned char* counter, unsigned char direction);
 void setup_pins(void);
+void update_leds(void); 
 
 unsigned char count_one = 0;
 unsigned char count_two = 0;
@@ -21,11 +22,11 @@ int main() {
   setup_pins();
   
   while(1) {
-    status = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_1); //PA1
-    direction = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_2); //PA2;
+    status = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_2); //PA1
+    direction = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_1); //PA2;
     if (status) {
       count(&count_one, direction);
-      count(&count_two, ~direction);
+      count(&count_two, (~direction) & GPIO_IDR_IDR_1);
       update_leds();
     }
     delay();
@@ -49,7 +50,7 @@ void delay () {
 /* or down.                                          */
 /*---------------------------------------------------*/
 void count(unsigned char* counter, unsigned char direction) {
-  if (direction) {
+  if (direction == 0) {
     *counter = (*counter + 1) % 10;
   } else {
     *counter = (*counter + (10 - 1)) % 10;
