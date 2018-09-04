@@ -10,17 +10,19 @@ void delay(void);
 void count(unsigned char* counter, unsigned char direction);
 void setup_pins(void);
 
+unsigned char count_one = 0;
+unsigned char count_two = 0;
+
 int main() {
   unsigned char status = 0; // start/stop
   unsigned char direction = 0; // inital direction
-  unsigned char count_one = 0;
-  unsigned char count_two = 0;
+
 
   setup_pins();
   
   while(1) {
-    status = (GPIOA->IDR & 0x00000001); //PA1
-    direction = (GPIOA->IDR & 0x00000002); //PA2;
+    status = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_1); //PA1
+    direction = READ_BIT(GPIOA->IDR, GPIO_IDR_IDR_2); //PA2;
     if (status) {
       count(&count_one, direction);
       count(&count_two, ~direction);
@@ -51,7 +53,7 @@ void count(unsigned char* counter, unsigned char direction) {
     *counter = (*counter + 1) % 10;
   } else {
     *counter = (*counter + (10 - 1)) % 10;
-  }  
+  }
 }
 
 /*---------------------------------------------------*/
@@ -60,8 +62,8 @@ void count(unsigned char* counter, unsigned char direction) {
 void update_leds() {
   unsigned short leds = (count_two & 0x0F) << 4; // PC[7:4]
   leds += (count_one & 0x0F); // PC[3:0]
-  GPIOC->BSRR |= (~leds) << 16; // clear bits
-  GPIOC->BSRR |= leds; // write bits	
+  SET_BIT(GPIOC->BSRR, (~leds) << 16); // turn off LEDs
+  SET_BIT(GPIOC->BSRR, leds); // turn on LEDs
 }
 
 /*---------------------------------------------------*/
@@ -69,11 +71,11 @@ void update_leds() {
 /*---------------------------------------------------*/
 void setup_pins () {
   /* Configure PA1 and PA2 as input pin to read push button */
-  RCC->AHBENR |= 0x01; /* Enable GPIOA clock (bit 0) */
-  GPIOA->MODER &= ~(0x0000003C); /* General purpose input mode */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN); // Enable GPIOA clock (bit 0)
+  CLEAR_BIT(GPIOA->MODER, (GPIO_MODER_MODER1 | GPIO_MODER_MODER2)); // set to input mode
   /* Configure PC[0,3] as output pins to drive LEDs */
-  RCC->AHBENR |= 0x04; /* Enable GPIOC clock (bit 2) */
-  GPIOC->MODER &= ~(0x0000FFFF); /* Clear PC[0,3] mode bits */
-  GPIOC->MODER |= (0x00005555); /* General purpose output mode*/
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOCEN); // Enable GPIOC clock (bit 2) */
+  CLEAR_BIT(GPIOC->MODER, 0x0000FFFF); /* Clear PC[0,3] mode bits */
+  SET_BIT(GPIOC->MODER, 0x00005555); /* General purpose output mode*/
 }
 
