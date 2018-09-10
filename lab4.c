@@ -1,7 +1,9 @@
 /*==============================================================*/
 /* Matthew Cather and Jacob Davis                               */
 /* ELEC 3040/3050 - Lab 4                                       */
-/* Two counters, one going up and one going down.               */
+/* Two counters, one updates once every delay (~1/2 sec) the    */
+/* other every 2 delays (1 sec). Pushbuttons are used to switch */
+/* the direction of the second counter.                         */
 /*==============================================================*/
 
 #include "STM32L1xx.h" /* Microcontroller information */
@@ -29,20 +31,20 @@ int main() {
   setup_pins();
   //setup_timer();
   setup_interupts();
-	counter_factory(&count_one);
-	counter_factory(&count_two);
-	GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
+  counter_factory(&count_one);
+  counter_factory(&count_two);
+  GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
   
   __enable_irq();
   
-	int ping = 0;
+  int ping = 0;
   while(1) {
-		ping = ~ping;
-		count(&count_one);
-		count(&count_two);
-		update_leds(ping);
-		delay();
-	};
+    ping = ~ping;
+    count(&count_one);
+    count(&count_two);
+    update_leds(ping);
+    delay();
+  };
 }
 
 /*----------------------------------------------------------*/
@@ -65,8 +67,8 @@ void count(counter* count) {
   if (count->direction) {
     count->count = (count->count + (10 - 1)) % 10; //DOWN
   } else {
-		count->count = (count->count + 1) % 10; //UP
-  } //TODO make sure this is correct
+    count->count = (count->count + 1) % 10; //UP
+  }
 }
 
 /*---------------------------------------------------*/
@@ -74,8 +76,8 @@ void count(counter* count) {
 /*---------------------------------------------------*/
 void update_leds(int ping) {
   unsigned short leds = 0;
-	leds = (count_two.count & 0x0F & ping) << 4; // PC[7:4]
-	leds += (count_one.count & 0x0F); // PC[3:0]
+  leds = (count_two.count & 0x0F & ping) << 4; // PC[7:4]
+  leds += (count_one.count & 0x0F); // PC[3:0]
   SET_BIT(GPIOC->BSRR, (~leds & 0xFF) << 16); // turn off LEDs
   SET_BIT(GPIOC->BSRR, leds); // turn on LEDs
 }
@@ -106,14 +108,14 @@ void setup_interupts() {
   SET_BIT(EXTI->IMR, (EXTI_IMR_MR0 | EXTI_IMR_MR1));
   SET_BIT(EXTI->RTSR, (EXTI_RTSR_TR0 | EXTI_RTSR_TR1));
 	
-	NVIC_EnableIRQ(EXTI0_IRQn);
-	NVIC_EnableIRQ(EXTI1_IRQn);
+  NVIC_EnableIRQ(EXTI0_IRQn);
+  NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* Clear pending bit for EXTI0 and EXTI1 */
   CLEAR_BIT(EXTI->PR, (EXTI_PR_PR0 | EXTI_PR_PR1));
 	
-	NVIC_ClearPendingIRQ(EXTI0_IRQn);
-	NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  NVIC_ClearPendingIRQ(EXTI0_IRQn);
+  NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
 
 void EXTI0_IRQHandler() {
@@ -121,9 +123,9 @@ void EXTI0_IRQHandler() {
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR0);
   count_two.direction = UP;
-	GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
-	GPIOC->BSRR = GPIO_BSRR_BR_9; //Reset PC9=0 to turn OFF green LED
-	NVIC_ClearPendingIRQ(EXTI0_IRQn);
+  GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
+  GPIOC->BSRR = GPIO_BSRR_BR_9; //Reset PC9=0 to turn OFF green LED
+  NVIC_ClearPendingIRQ(EXTI0_IRQn);
 }
 
 void EXTI1_IRQHandler() {
@@ -131,12 +133,12 @@ void EXTI1_IRQHandler() {
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
   count_two.direction = DOWN;
-	GPIOC->BSRR = GPIO_BSRR_BR_8; //Reset PC8=0 to turn OFF blue LED
-	GPIOC->BSRR = GPIO_BSRR_BS_9; //Set PC9=1 to turn ON green LED
-	NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  GPIOC->BSRR = GPIO_BSRR_BR_8; //Reset PC8=0 to turn OFF blue LED
+  GPIOC->BSRR = GPIO_BSRR_BS_9; //Set PC9=1 to turn ON green LED
+  NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
 
 void counter_factory(counter* c) {
 	c->count = 0;
-	c->direction = 0;
+	c->direction = UP;
 }
