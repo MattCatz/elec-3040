@@ -28,23 +28,26 @@ void counter_factory(counter* c);
 
 counter count_one;
 counter count_two;
+unsigned char LED8;
+unsigned char LED9;
 
 int main() {
-
   setup_pins();
   setup_interupts();
   counter_factory(&count_one);
   counter_factory(&count_two);
-  GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
+  GPIOC->BSRR = GPIO_BSRR_BS_9; 
+	LED8 = 0;
+	LED9 = 1;
 
   __enable_irq();
 
   while(1) {
+		delay();
+		count_two.disable = ~count_two.disable;
     count(&count_one);
     count(&count_two);
     update_leds();
-    count_two.disable = ~count_two.disable;
-    delay();
   };
 }
 
@@ -120,13 +123,28 @@ void setup_interupts() {
   NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
 
+void small_delay () {
+  int i;
+  for (i=0; i<100000; i++) { //outer loop
+    asm("nop"); //dummy operation for single-step test
+  }
+}
+
 void EXTI0_IRQHandler() {
   /* Hanndle Pushbutton 0 */
   /* Acknowledge interupt */
-  SET_BIT(EXTI->PR, EXTI_PR_PR0);
-  count_two.direction = UP;
-  GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
-  GPIOC->BSRR = GPIO_BSRR_BR_9; //Reset PC9=0 to turn OFF green LED
+  
+  count_two.direction = DOWN;
+	if (LED8) {
+		GPIOC->BSRR = GPIO_BSRR_BR_8;
+		LED8 = 0;
+	} else {
+		GPIOC->BSRR = GPIO_BSRR_BS_8; //Set PC8=1 to turn ON blue LED
+		LED8 = 1;
+	}
+  //GPIOC->BSRR = GPIO_BSRR_BR_9; //Reset PC9=0 to turn OFF green LED
+	small_delay();
+	SET_BIT(EXTI->PR, EXTI_PR_PR0);
   NVIC_ClearPendingIRQ(EXTI0_IRQn);
 }
 
@@ -134,9 +152,16 @@ void EXTI1_IRQHandler() {
   /* Hanndle Pushbutton 1*/
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
-  count_two.direction = DOWN;
-  GPIOC->BSRR = GPIO_BSRR_BR_8; //Reset PC8=0 to turn OFF blue LED
-  GPIOC->BSRR = GPIO_BSRR_BS_9; //Set PC9=1 to turn ON green LED
+  count_two.direction = UP;
+	if (LED9) {
+		GPIOC->BSRR = GPIO_BSRR_BR_9;
+		LED9 = 0;
+	} else {
+		GPIOC->BSRR = GPIO_BSRR_BS_9; //Set PC9=1 to turn ON blue LED
+		LED9 = 1;
+	}
+  //GPIOC->BSRR = GPIO_BSRR_BR_8; //Reset PC8=0 to turn OFF blue LED
+	small_delay();
   NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
 
