@@ -11,22 +11,35 @@
 
 /*
  * Wraps all the keypad into one structure. Row and column hold the
- * value [1,4]. The key number can be found by multipying the row and
- * column value. Event tells how long to display key value.
+ * value [1,4]. The key number can be found by indexing into the keys
+ * array using row and column. Event tells how long to display key value.
  */
 struct {
   unsigned char row;
   unsigned char column;
   unsigned char event;
+  const unsigned char row1[4];
+  const unsigned char row2[4];
+  const unsigned char row3[4];
+  const unsigned char row4[4];
+  const unsigned char* keys[];
 } typedef matrix_keypad;
 
 void delay(void);
 void setup_pins(void);
 void update_leds(unsigned char value);
 void setup_interupts(void);
-void keypad_factory(matrix_keypad* k);
 
-matrix_keypad keypad;
+matrix_keypad keypad = {
+  .row = ~0,
+  .column = ~0,
+  .event = 0,
+  .row1 = {1, 2, 3, 0xA},
+  .row2 = {4, 5, 6, 0xB},
+  .row3 = {7, 8, 9, 0xC},
+  .row4 = {0xE, 0, 0xF, 0xD},
+  .keys = {keypad.row1, keypad.row2, keypad.row3, keypad.row4},
+};
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -40,7 +53,6 @@ matrix_keypad keypad;
 int main() {
   setup_pins();
   setup_interupts();
-  keypad_factory(&keypad);
   unsigned char count = 0;
   SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
 
@@ -50,8 +62,7 @@ int main() {
     delay();
     count = (count + 1) % 10;
     if (keypad.event) {
-      update_leds(keypad.row * keypad.column);
-			keypad.event--;
+      keypad.event--;
     } else {
       update_leds(count);
     }
@@ -139,7 +150,7 @@ void small_delay() {
  * This might be a little to clever to actually work. What we want to do is
  * loop over the columns grounding one at a time and checking to see if one
  * of the rows is shorted. If nothing is found then the the row and column
- * are set to zero to signify invalid key and event is set to zero so the 
+ * are set to MAX to signify invalid key and event is set to zero so the 
  * main event loop does not pick up the keypress.
  */
 void EXTI1_IRQHandler() {
@@ -147,33 +158,27 @@ void EXTI1_IRQHandler() {
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
   
-	/* The zero at the front is a little hacky but since the loops start at one
-	 * then we need the buffer to index correctly.
-	 */
-  const int COLUMN_MASK[] = {0, GPIO_BSRR_BR_0, GPIO_BSRR_BR_1, GPIO_BSRR_BR_2, GPIO_BSRR_BR_3};
-  const int ROW_MASK[] = {0, GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
+  const int COLUMN_MASK[] = {GPIO_BSRR_BR_0, GPIO_BSRR_BR_1, GPIO_BSRR_BR_2, GPIO_BSRR_BR_3};
+  const int ROW_MASK[] = {GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
 
-  for (keypad.column=1;keypad.column<5;keypad.column++) {
+  for (keypad.column=0;keypad.column<4;keypad.column++) {
     SET_BIT(GPIOB->BSRR, 0x0000000F);
     SET_BIT(GPIOB->BSRR, COLUMN_MASK[keypad.column]);
     small_delay();
-    for (keypad.row=1;keypad.row<5;keypad.row++) {
+    for (keypad.row=0;keypad.row<4;keypad.row++) {
       if (!READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row])) {
         keypad.event = 5;
+        update_leds(keypad.keys[keypad.column][keypad.row]);
+        SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
         return;
       }
     }
   }
   
-  keypad.row = 0;
-  keypad.column = 0;
+  keypad.row = ~0;
+  keypad.column = ~0;
   keypad.event = 0;
+  SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
   NVIC_ClearPendingIRQ(EXTI1_IRQn);
-}
-
-void keypad_factory(matrix_keypad* k) {
-  k->row = 0;
-  k->column = 0;
-  k->event = 0;
 }
