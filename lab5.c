@@ -49,8 +49,9 @@ int main() {
   while(1) {
     delay();
     count = (count + 1) % 10;
-    if (keypad.event--) {
-      update_leds(row * column);
+    if (keypad.event) {
+      update_leds(keypad.row * keypad.column);
+			keypad.event--;
     } else {
       update_leds(count);
     }
@@ -90,13 +91,13 @@ void setup_pins () {
   CLEAR_BIT(GPIOA->MODER, GPIO_MODER_MODER1); // set to input mode
 
   /*Configure PB[0,3] as keypad row lines, input*/
-  SET_BIT(RCC-> RCC_AHBENR_GPIOBEN);
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN);
   CLEAR_BIT(GPIOB->MODER, 0x000000FF);
   /*This enables the pullup resistor so we can read the row lines*/
-  MODIFY_REGISTER(GPIOB->PUPDR, 0x000000FF, 0x00000055);
+  MODIFY_REG(GPIOB->PUPDR, 0x000000FF, 0x00000055);
   
   /*Configure PB[4,7] as keypad column lines, output*/
-  MODIFY_REGISTER(GPIOB->MODER, 0x0000FF00, 0x00005500);
+  MODIFY_REG(GPIOB->MODER, 0x0000FF00, 0x00005500);
 
   /* Configure PC[0,3] as output pins to drive LEDs */
   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOCEN); // Enable GPIOC clock (bit 2) */
@@ -146,12 +147,15 @@ void EXTI1_IRQHandler() {
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
   
-  COLUMN_MASK = [GPIO_BSRR_BR_0, GPIO_BSRR_BR_1, GPIO_BSRR_BR_2, GPIO_BSRR_BR_3];
-  ROW_MASK = [GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3];
+	/* The zero at the front is a little hacky but since the loops start at one
+	 * then we need the buffer to index correctly.
+	 */
+  const int COLUMN_MASK[] = {0, GPIO_BSRR_BR_0, GPIO_BSRR_BR_1, GPIO_BSRR_BR_2, GPIO_BSRR_BR_3};
+  const int ROW_MASK[] = {0, GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
 
   for (keypad.column=1;keypad.column<5;keypad.column++) {
-    SET_BIT(GPIO->BSRR, 0x0000000F);
-    SET_BIT(GPIO->BSRR, COLUMN_MASK[keypad.column]);
+    SET_BIT(GPIOB->BSRR, 0x0000000F);
+    SET_BIT(GPIOB->BSRR, COLUMN_MASK[keypad.column]);
     small_delay();
     for (keypad.row=1;keypad.row<5;keypad.row++) {
       if (!READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row])) {
