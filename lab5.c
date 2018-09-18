@@ -29,10 +29,13 @@ void delay(void);
 void setup_pins(void);
 void update_leds(unsigned char value);
 void setup_interupts(void);
+// Begin DEBUG
+void debug_leds(unsigned char value);
+// End DEBUG
 
 matrix_keypad keypad = {
-  .row = ~0,  //Initialize rows to 0
-  .column = ~0, //Initialize columns to 0
+  .row = ~0,  //Initialize rows to MAX
+  .column = ~0, //Initialize columns to MAX
   .event = 0,
   .row1 = {1, 2, 3, 0xA},
   .row2 = {4, 5, 6, 0xB},
@@ -54,18 +57,22 @@ int main() {
   setup_pins();
   setup_interupts();
   unsigned char count = 0;
-  SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
+  SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
 
   __enable_irq();
 
   while(1) {
     delay();
-    count = (count + 1) % 10;
     if (keypad.event) {
       keypad.event--;
+			update_leds(keypad.keys[keypad.column][keypad.row]);
     } else {
-      update_leds(count);
-    }
+			update_leds(count);
+		}
+		count = (count + 1) % 10;
+		// Begin DEBUG
+		debug_leds(count % 10);
+		// Eend DEBUG
   };
 }
 
@@ -87,6 +94,11 @@ void delay () {
 void update_leds(unsigned char value) {
   SET_BIT(GPIOC->BSRR, (~value & 0xFF) << 16); // turn off LEDs not used
   SET_BIT(GPIOC->BSRR, value); // turn on LEDs
+}
+
+void debug_leds(unsigned char value) {
+	SET_BIT(GPIOC->BSRR, (~value & 0xFF00) << 16); // turn off LEDs not used
+  SET_BIT(GPIOC->BSRR, value << 4); // turn on LEDs
 }
 
 /*
@@ -114,6 +126,13 @@ void setup_pins () {
   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOCEN); // Enable GPIOC clock (bit 2) */
   CLEAR_BIT(GPIOC->MODER, 0x000000FF); /* Clear PC[0,3] mode bits */
   SET_BIT(GPIOC->MODER, 0x00000055); /* General purpose output mode*/
+	
+	// Begin DEBUG
+	/* Configure PC[4,7] as output pins to drive LEDs */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOCEN); // Enable GPIOC clock (bit 2) */
+  CLEAR_BIT(GPIOC->MODER, 0x0000FF00); /* Clear PC[0,3] mode bits */
+  SET_BIT(GPIOC->MODER, 0x00005500); /* General purpose output mode*/
+	// End DEBUG
 }
 
 /*
@@ -126,7 +145,7 @@ void setup_interupts() {
 
   /* Unmask EXTI1 and set both to rising edge trigger*/
   SET_BIT(EXTI->IMR,  EXTI_IMR_MR1);
-  SET_BIT(EXTI->RTSR, EXTI_RTSR_TR1);
+  SET_BIT(EXTI->FTSR, EXTI_FTSR_TR1);
 
   NVIC_EnableIRQ(EXTI1_IRQn);
 
@@ -141,7 +160,7 @@ void setup_interupts() {
  */
 void small_delay() {
   int i;
-  for (i=0; i<10; i++) {
+  for (i=0; i<100; i++) {
     asm("nop");
   }
 }
@@ -158,18 +177,22 @@ void EXTI1_IRQHandler() {
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
   
-  const int COLUMN_MASK[] = {GPIO_BSRR_BR_0, GPIO_BSRR_BR_1, GPIO_BSRR_BR_2, GPIO_BSRR_BR_3};
+  const int COLUMN_MASK[] = {GPIO_BSRR_BR_4, GPIO_BSRR_BR_5, GPIO_BSRR_BR_6, GPIO_BSRR_BR_7};
   const int ROW_MASK[] = {GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
 
   for (keypad.column=0;keypad.column<4;keypad.column++) {
-    SET_BIT(GPIOB->BSRR, 0x0000000F);
+		//unsigned int DEBUG_BSRR = 0;
+    SET_BIT(GPIOB->BSRR, 0x000000F0);
     SET_BIT(GPIOB->BSRR, COLUMN_MASK[keypad.column]);
-    small_delay();
+		//GPIOB->BSRR = DEBUG_BSRR;			
     for (keypad.row=0;keypad.row<4;keypad.row++) {
-      if (!READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row])) {
-        keypad.event = 5;
-        update_leds(keypad.keys[keypad.column][keypad.row]);  //Display keys pressed via LEDs
-        SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
+			small_delay();
+			//unsigned short DEBUG_IDR = GPIOB->IDR;
+			unsigned short temp = READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row]);
+      if (!temp) {
+        keypad.event = 4;
+        update_leds(keypad.keys[keypad.row][keypad.column]);  //Display keys pressed via LEDs
+        SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
         return;
       }
@@ -178,7 +201,7 @@ void EXTI1_IRQHandler() {
   
   keypad.row = ~0;
   keypad.column = ~0;
-  keypad.event = 0;
-  SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
+  //keypad.event = 0;
+  SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
   NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
