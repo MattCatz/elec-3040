@@ -31,8 +31,8 @@ void update_leds(unsigned char value);
 void setup_interupts(void);
 
 matrix_keypad keypad = {
-  .row = ~0,
-  .column = ~0,
+  .row = ~0,  //Initialize rows to 0
+  .column = ~0, //Initialize columns to 0
   .event = 0,
   .row1 = {1, 2, 3, 0xA},
   .row2 = {4, 5, 6, 0xB},
@@ -168,7 +168,7 @@ void EXTI1_IRQHandler() {
     for (keypad.row=0;keypad.row<4;keypad.row++) {
       if (!READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row])) {
         keypad.event = 5;
-        update_leds(keypad.keys[keypad.column][keypad.row]);
+        update_leds(keypad.keys[keypad.column][keypad.row]);  //Display keys pressed via LEDs
         SET_BIT(GPIOB->BSRR, 0x0000F000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
         return;
