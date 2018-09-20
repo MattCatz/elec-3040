@@ -44,6 +44,8 @@ matrix_keypad keypad = {
   .keys = {keypad.row1, keypad.row2, keypad.row3, keypad.row4},
 };
 
+int bounce = 0;
+
 /*
  * First everything is configured/initilized. Specifically notice
  * that all columns are grounded so keypresses can be detected.
@@ -63,15 +65,14 @@ int main() {
 
   while(1) {
     delay();
+		count = (count + 1) % 10;
     if (keypad.event) {
-      keypad.event--;
-			update_leds(keypad.keys[keypad.column][keypad.row]);
+			keypad.event--;
     } else {
 			update_leds(count);
 		}
-		count = (count + 1) % 10;
 		// Begin DEBUG
-		debug_leds(count % 10);
+		debug_leds(count);
 		// Eend DEBUG
   };
 }
@@ -92,7 +93,8 @@ void delay () {
  * Update the LEDS connected to PC[0,4].                   
  */
 void update_leds(unsigned char value) {
-  SET_BIT(GPIOC->BSRR, (~value & 0xFF) << 16); // turn off LEDs not used
+	unsigned int debug = (~value & 0xF) << 16;
+  SET_BIT(GPIOC->BSRR, debug); // turn off LEDs not used
   SET_BIT(GPIOC->BSRR, value); // turn on LEDs
 }
 
@@ -160,7 +162,8 @@ void setup_interupts() {
  */
 void small_delay() {
   int i;
-  for (i=0; i<100; i++) {
+  //for (i=0; i<100; i++) {
+	for (i=0; i<4; i++) {
     asm("nop");
   }
 }
@@ -198,9 +201,11 @@ void EXTI1_IRQHandler() {
       }
     }
   }
+	
+	bounce++;
   
-  keypad.row = ~0;
-  keypad.column = ~0;
+  //keypad.row = ~0;
+  //keypad.column = ~0;
   //keypad.event = 0;
   SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
   NVIC_ClearPendingIRQ(EXTI1_IRQn);
