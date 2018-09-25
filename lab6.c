@@ -185,7 +185,7 @@ void EXTI1_IRQHandler() {
 }
 
 void TIM10_IRQHandler() {
-  CLEAR_BIT(TIM10->UIF, TIM_SR_UIF);
+  CLEAR_BIT(TIM10->SR, TIM_SR_UIF);
   
   count.second = (count.second + 1) % 10;
   SET_BIT(GPOIC->BSRR, ~count.second <<16); //turn off decimal
