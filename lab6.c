@@ -39,7 +39,7 @@ void update_leds(unsigned char value);
 matrix_keypad keypad = {
   .row = ~0,  //Initialize rows to MAX
   .column = ~0, //Initialize columns to MAX
-  .event = 0,
+  .event = ~0,
   .row1 = {1, 2, 3, 0xA},
   .row2 = {4, 5, 6, 0xB},
   .row3 = {7, 8, 9, 0xC},
@@ -48,9 +48,9 @@ matrix_keypad keypad = {
 };
 
 display counter = {
-  .first = 0;
-  .second = 0;
-}
+  .first = 0,
+  .second = 0,
+};
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -66,16 +66,23 @@ int main() {
   setup_interupts();
   setup_timers();
   SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
+	//SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
 
   __enable_irq();
 
   while(1) {
-    unsigned char running = READ_BIT(TIM4->CR1, TIM_CR1_CEN);
-    if (keypad.event == '0') {
-      SET_BIT(TIM4->CR1, ~running); //toggle counting      
-    } else if (!running && keypad.event == '1') {
-      counter.first = 0;
-      counter.second = 0;
+    unsigned char running = READ_BIT(TIM10->CR1, TIM_CR1_CEN);
+    if (keypad.event == 0 && running) {
+      CLEAR_BIT(TIM10->CR1, TIM_CR1_CEN); //toggle counting
+			keypad.event = ~0;
+		} else if (keypad.event == 0 && !running) {
+			SET_BIT(TIM10->CR1, TIM_CR1_CEN); //toggle counting
+			keypad.event = ~0;
+    } else if (!running && keypad.event == 1) {
+            counter.first = 0;
+						counter.second = 0;
+			GPIOC->BSRR = 0xFF0000;
+			keypad.event = ~0;
     }
   };
 }
@@ -135,10 +142,9 @@ void setup_interupts() {
 
 void setup_timers() {
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
-  SET_BIT(TIM10->ARR, 0x1FF); //set auto reload. assumes 16MHz
-  SET_BIT(TIM10->PSC, 0x100); //set prescale. assumes 16MHz
+  TIM10->ARR = 0x333; //set auto reload. assumes 2MHz
+  TIM10->PSC=0xFF; //set prescale. assumes 2MHz
   SET_BIT(TIM10->DIER, TIM_DIER_UIE); //enable interupts
-  SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
 }
 
 /*
@@ -171,7 +177,7 @@ void EXTI1_IRQHandler() {
     SET_BIT(GPIOB->BSRR, COLUMN_MASK[keypad.column]);
     for (keypad.row=0;keypad.row<4;keypad.row++) {
       small_delay();
-      if (!temp) {
+      if (!READ_BIT(GPIOB->IDR, ROW_MASK[keypad.row])) {
         keypad.event = keypad.keys[keypad.row][keypad.column];
         SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
@@ -187,15 +193,15 @@ void EXTI1_IRQHandler() {
 void TIM10_IRQHandler() {
   CLEAR_BIT(TIM10->SR, TIM_SR_UIF);
   
-  count.second = (count.second + 1) % 10;
-  SET_BIT(GPOIC->BSRR, ~count.second <<16); //turn off decimal
-  SET_BIT(GPIOC->BSRR, count.second); //turn on decimal
+  counter.second = (counter.second + 1) % 10;
+	GPIOC->BSRR = 0xF0000;
+  SET_BIT(GPIOC->BSRR, counter.second & 0xF); //turn on decimal
  
-  if (!count.second) {
-    count.first = (count.first + 1) % 10;
-    SET_BIT(GPIOC->BSRR, ~cound.one << 20); //turn off ones
-    SET_BIT(GPIOC->BSRR, count.one << 4) //turn on ones 
-  } 
+  if (counter.second == 0) {
+		counter.first = (counter.first + 1) % 10;
+		GPIOC->BSRR = 0xF00000;
+		SET_BIT(GPIOC->BSRR, counter.first << 4);
+	} 
  
   NVIC_ClearPendingIRQ(TIM10_IRQn);
 }
