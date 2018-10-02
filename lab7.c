@@ -24,8 +24,6 @@ struct {
   unsigned char second;
 } typedef display;
 
-unsigned int i[11] = {0, 210, 419, 629, 839, 1049, 1258, 1468, 1677, 1887, 2097};
-
 void delay(void);
 void setup_pins(void);
 void setup_interupts(void);
@@ -55,8 +53,8 @@ int main() {
   __enable_irq();
 
   while(1) {
-    if (keypad.event == 0) {
-      TIM10->CCR1 = i[keypad.value];
+    if (keypad.event == 0 & keypad.event < 11) {
+      TIM10->CCR1 = (16000000 / 1000) * (keypad.value / 10);
       keypad.event = ~0;
     }
   };
@@ -118,14 +116,19 @@ void setup_interupts() {
 }
 
 void setup_timers() {
+  RCC->CR |= RCC_CR_HSION; // Turn on 16MHz HSI oscillator
+  while ((RCC->CR & RCC_CR_HSIRDY) == 0); // Wait until HSI ready
+  RCC->CFGR |= RCC_CFGR_SW_HSI; // Select HSI as system clock
+  
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
-  TIM10->ARR = 2096; //set auto reload. assumes 2MHz
-  TIM10->PSC = 0; //set prescale.
-  TIM10->CCR1 = 2097; //Set compair value
-	MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
-	MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
-	SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin 
-	SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
+  TIM10->ARR = 99; //set auto reload. assumes 2MHz
+  TIM10->PSC = 159; //set prescale.
+  TIM10->CCR1 = 0; //Set compair value
+  TIM10->CNT = 0;
+  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
+  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
+  SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin 
+  SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
 }
 
 /*
@@ -183,6 +186,7 @@ void EXTI1_IRQHandler() {
       if (!READ_BIT(GPIOB->IDR, ROW_MASK[decoder.row])) {
         keypad.value = decoder.keys[decoder.row][decoder.column];
         keypad.event = 1;
+	GPIOA->ODR = keypad.value;
         SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
         return;
