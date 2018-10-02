@@ -24,6 +24,8 @@ struct {
   unsigned char second;
 } typedef display;
 
+unsigned int i[11] = {0, 210, 419, 629, 839, 1049, 1258, 1468, 1677, 1887, 2097};
+
 void delay(void);
 void setup_pins(void);
 void setup_interupts(void);
@@ -34,8 +36,6 @@ matrix_keypad keypad = {
  .value = 0,
  .event = 0, 
 };
-
-i = {0, 210, 419, 629, 839, 1049, 1258, 1468, 1677, 1887, 2097}
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -88,7 +88,7 @@ void setup_pins () {
   MODIFY_REG(GPIOC->MODER, 0x000000FF, 0x00000055);	
 
   /* Configure PC[4,7] as output pins to drive LEDs */
-  MODIFY_REG(GPIOC->MODER, 0x0000FF00, 0x00005500)
+  MODIFY_REG(GPIOC->MODER, 0x0000FF00, 0x00005500);
   
   /* Change PA6 to altrnative function mode */
   MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER6, 0x00002000);
@@ -123,8 +123,8 @@ void setup_timers() {
   TIM10->PSC = 0; //set prescale.
   TIM10->CCR1 = 2097; //Set compair value
 	MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
-	MODIFY_REG(TIME10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
-	SET_BIT(TIME10->CCER1, TIM_CCER1_CC1E); // drive output pin 
+	MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
+	SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin 
 	SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
 }
 
@@ -138,6 +138,30 @@ void small_delay() {
   }
 }
 
+struct {
+  unsigned char row;
+  unsigned char column;
+  const unsigned char row1[4];
+  const unsigned char row2[4];
+  const unsigned char row3[4];
+  const unsigned char row4[4];
+  const unsigned char* keys[];
+} typedef keypad_decoder;
+
+
+keypad_decoder decoder = {
+  .row = ~0,  //Initialize rows to MAX
+  .column = ~0, //Initialize columns to MAX
+  .row1 = {1, 2, 3, 0xA},
+  .row2 = {4, 5, 6, 0xB},
+  .row3 = {7, 8, 9, 0xC},
+  .row4 = {0xE, 0, 0xF, 0xD},
+  .keys = {decoder.row1, decoder.row2, decoder.row3, decoder.row4}
+};
+
+ const int COLUMN_MASK[] = {GPIO_BSRR_BR_4, GPIO_BSRR_BR_5, GPIO_BSRR_BR_6, GPIO_BSRR_BR_7};
+ const int ROW_MASK[] = {GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
+
 /*
  * This might be a little to clever to actually work. What we want to do is
  * loop over the columns grounding one at a time and checking to see if one
@@ -149,25 +173,15 @@ void EXTI1_IRQHandler() {
   /* Hanndle Pushbutton 1*/
   /* Acknowledge interupt */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
-  
-	.row = ~0,  //Initialize rows to MAX
-  .column = ~0, //Initialize columns to MAX
-  .row1 = {1, 2, 3, 0xA},
-  .row2 = {4, 5, 6, 0xB},
-  .row3 = {7, 8, 9, 0xC},
-  .row4 = {0xE, 0, 0xF, 0xD},
-  .keys = {keypad.row1, keypad.row2, keypad.row3, keypad.row4},
+ 
 
-  const int COLUMN_MASK[] = {GPIO_BSRR_BR_4, GPIO_BSRR_BR_5, GPIO_BSRR_BR_6, GPIO_BSRR_BR_7};
-  const int ROW_MASK[] = {GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
-
-  for (column=0;column<4;column++) {
+  for (decoder.column=0;decoder.column<4;decoder.column++) {
     SET_BIT(GPIOB->BSRR, 0x000000F0);
-    SET_BIT(GPIOB->BSRR, COLUMN_MASK[column]);
-    for (row=0;row<4;row++) {
+    SET_BIT(GPIOB->BSRR, COLUMN_MASK[decoder.column]);
+    for (decoder.row=0;decoder.row<4;decoder.row++) {
       small_delay();
-      if (!READ_BIT(GPIOB->IDR, ROW_MASK[row])) {
-        keypad.value = decoder[row][column];
+      if (!READ_BIT(GPIOB->IDR, ROW_MASK[decoder.row])) {
+        keypad.value = decoder.keys[decoder.row][decoder.column];
         keypad.event = 1;
         SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
         NVIC_ClearPendingIRQ(EXTI1_IRQn);
