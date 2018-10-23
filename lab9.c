@@ -224,13 +224,7 @@ void EXTI1_IRQHandler() {
 void TIM11_IRQHandler() {
   CLEAR_BIT(TIM11->SR, TIM_SR_UIF);
   
-  period = TIM11->CCR4;
- 
-  if (counter.second == 0) {
-		counter.first = (counter.first + 1) % 10;
-		GPIOC->BSRR = 0xF00000;
-		SET_BIT(GPIOC->BSRR, counter.first << 4);
-	} 
+  period = (TIM11->CNT)/(TIM11->ARR +1); 
  
   NVIC_ClearPendingIRQ(TIM10_IRQn);
 }
