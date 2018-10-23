@@ -116,6 +116,7 @@ void setup_interupts() {
   /* Unmask EXTI1 and set both to rising edge trigger*/
   SET_BIT(EXTI->IMR,  EXTI_IMR_MR1);
   SET_BIT(EXTI->FTSR, EXTI_FTSR_TR1);
+	
 
   NVIC_EnableIRQ(EXTI1_IRQn);
 
@@ -132,7 +133,7 @@ void setup_timers() {
   
 	/* Timer 10 */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
-  TIM10->ARR = 999; //set auto reload. assumes 2MHz
+  TIM10->ARR = 999; //set auto reload. assumes 16MHz
   TIM10->PSC = 159; //set prescale.
   TIM10->CCR1 = 10; //Set compair value
   TIM10->CNT = 0;
@@ -142,10 +143,12 @@ void setup_timers() {
 	
 	/* Timer 11 */
 	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM11EN); //enable clock source
-	SET_BIT(TIM11->CCER,TIM_CCER_CC1P);
+	SET_BIT(TIM11->CCER,TIM_CCER_CC1P); // Set to falling edge
 	SET_BIT(TIM11->CCER, TIM_CCER_CC1E); // drive output pin
 	TIM11->CNT = 0;
-	TIM11->ARR = 999; // value > max period to prevent update event before capture
+	TIM11->ARR = 0xFFFF; // value > max period to prevent update event before capture
+	TIM11->PSC = 159; //set prescale.
+	// Above should be a 1000 Hz sample rate
 	
 	/* Enabling Timer Interupts */
 	SET_BIT(TIM11->DIER, TIM_DIER_UIE); //enable interupts
@@ -224,7 +227,9 @@ void EXTI1_IRQHandler() {
 void TIM11_IRQHandler() {
   CLEAR_BIT(TIM11->SR, TIM_SR_UIF);
   
-  period = (TIM11->CNT)/(TIM11->ARR +1); 
+	//TIM11->CCR1 = TIM11->CNT;
+	TIM11->CNT = 0;
+  period = (TIM11->CCR1)*(TIM11->PSC/16000000); // Becuase we use the high speed clock
  
-  NVIC_ClearPendingIRQ(TIM10_IRQn);
+  NVIC_ClearPendingIRQ(TIM11_IRQn);
 }
