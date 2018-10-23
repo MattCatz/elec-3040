@@ -24,7 +24,7 @@ struct {
   unsigned char second;
 } typedef display;
 
-int period;
+double period;
 
 void delay(void);
 void setup_pins(void);
@@ -103,6 +103,14 @@ void setup_pins () {
 	
 	/*This enables the pullup resistor so we can read input capture*/
   MODIFY_REG(GPIOB->PUPDR, GPIO_PUPDR_PUPDR7, GPIO_PUPDR_PUPDR7_0);
+	
+	/*Configure PA7 as alternate function pin for the input capture*/	
+GPIOA->MODER  &= ~(0x0000C000); // Clear PA7 Mode
+GPIOA->MODER  |=  (0x00008000); // Set PA7 to Alternate Function Mode
+GPIOA->AFR[0] &= ~(0xF0000000); // Clear Alternate Function Settings for PA7
+GPIOA->AFR[0] |= 	(0x30000000); // Set PA7 to Alternate Function 3 (Timers 9-11)
+GPIOA->PUPDR  &= ~(0x0000C000); // Clear Pull-up/Pull-down for PA7
+GPIOA->PUPDR  |=  (0x00004000); // Activate Pull-up for PA7
 }
 
 /*
@@ -119,6 +127,7 @@ void setup_interupts() {
 	
 
   NVIC_EnableIRQ(EXTI1_IRQn);
+	NVIC_EnableIRQ(TIM11_IRQn);
 
   /* Clear pending bit for EXTI1 */
   SET_BIT(EXTI->PR, EXTI_PR_PR1);
@@ -137,24 +146,52 @@ void setup_timers() {
   TIM10->PSC = 159; //set prescale.
   TIM10->CCR1 = 10; //Set compair value
   TIM10->CNT = 0;
-  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
+  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, TIM_CCMR1_CC1S); // Capture compair select
   MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
   SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin
-	
-	/* Timer 11 */
+
+//	/* Timer 11 */
 	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM11EN); //enable clock source
-	SET_BIT(TIM11->CCER,TIM_CCER_CC1P); // Set to falling edge
+	CLEAR_BIT(TIM11->CCER, TIM_CCER_CC1P); // Set to falling edge
 	SET_BIT(TIM11->CCER, TIM_CCER_CC1E); // drive output pin
-	TIM11->CNT = 0;
+	MODIFY_REG(TIM11->CCMR1, TIM_CCMR1_CC1S, TIM_CCMR1_CC1S_0); // Capture compair select
+	//TIM11->CNT = 0;
 	TIM11->ARR = 0xFFFF; // value > max period to prevent update event before capture
-	TIM11->PSC = 159; //set prescale.
-	// Above should be a 1000 Hz sample rate
+	TIM11->PSC = 0x9F; //set prescale.
+	// Above should be a sample rate
 	
 	/* Enabling Timer Interupts */
-	SET_BIT(TIM11->DIER, TIM_DIER_UIE); //enable interupts
+	SET_BIT(TIM11->DIER, TIM_DIER_UIE);
+	SET_BIT(TIM11->DIER, TIM_DIER_CC1IE); //enable interupts
+	
+	/* New Stuff */
+	TIM11->SR &= ~TIM_SR_UIF;       // Clear UIF
+  TIM11->SR &= ~TIM_SR_CC1IF;    // Clear Capture Compare
+	
+	TIM11->SR &= ~(0x01);
 	
   SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
 	SET_BIT(TIM11->CR1, TIM_CR1_CEN); //enable counting
+
+	/* Daylon */
+	 RCC->APB2ENR |= RCC_APB2ENR_TIM11EN; //Enable Clock Timer 11
+ 
+ TIM11->PSC    = 0x9F;      // Set Prescaler Value so that each count is 10us
+ TIM11->ARR    = 0xFFFF;   // Set Autoreload Value
+ //TIM11->CNT    = 0;       // Set Timer Count = 0
+ 
+  /*Enable Interrupt for Timer 11*/
+ TIM11->DIER |= TIM_DIER_UIE;   // Enable TIM11 to signal an interrupt
+ TIM11->DIER |= TIM_DIER_CC1IE; // Enable Capture/Compare 1 to signal an interrupt 
+ TIM11->SR &= ~TIM_SR_UIF;       // Clear UIF
+ TIM11->SR &= ~TIM_SR_CC1IF;    // Clear Capture Compare
+ TIM11->CCMR1 |=   0x01;        // Set to input
+ TIM11->CCER  |=   TIM_CCER_CC1E;  // Enable Capture Compare
+ TIM11->CR1   |= TIM_CR1_CEN;    // Enable counting
+ 
+ NVIC_ClearPendingIRQ(TIM11_IRQn);  // Clear Pending Status of Timer IRQ  
+ NVIC_EnableIRQ(TIM11_IRQn);
+ NVIC_SetPriority(TIM11_IRQn,0);   // Set Priority of Timer IRQ to 0
 }
 
 /*
@@ -229,7 +266,8 @@ void TIM11_IRQHandler() {
   
 	//TIM11->CCR1 = TIM11->CNT;
 	TIM11->CNT = 0;
-  period = (TIM11->CCR1)*(TIM11->PSC/16000000); // Becuase we use the high speed clock
+  period = (TIM11->CCR1*TIM11->PSC)/16000000.0; // Becuase we use the high speed clock
  
   NVIC_ClearPendingIRQ(TIM11_IRQn);
+	TIM11->SR &= ~(TIM_SR_CC1IF);
 }
