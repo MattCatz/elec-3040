@@ -29,6 +29,7 @@ void setup_pwm_gen(void);
 void setup_speed_ctr(void);
 
 double period;
+double amplitude;
 
 int main() {
    SET_BIT(RCC->CR,RCC_CR_HSION); // Turn on 16MHz HSI oscillator
@@ -37,13 +38,14 @@ int main() {
    
    SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN); // Enable GPIOA clock
    SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN); // Enable GPIOC clock
-   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_*****); // Enable ADC clock
+   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC clock
    
    setup_keypad();
    setup_pwm_gen();
    setup_speed_ctr();
    
    period = 0;
+   SET_BIT(ADC1->CR2, ADC_CR2_SWSTART);
    
    __enable_irq();
    
@@ -87,7 +89,7 @@ void setup_pwm_gen() {
    /* Change the alternate function of PA6 to be the CC*/
    MODIFY_REG(GPIOA->AFR[0], GPIO_AFRL_AFRL6, 0x03000000);
    
-	/* Timer 10 */
+   /* Timer 10 */
    SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
    TIM10->ARR = 999; //set auto reload. assumes 16MHz
    TIM10->PSC = 159; //set prescale.
