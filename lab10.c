@@ -1,118 +1,163 @@
 /*==============================================================*/
 /* Matthew Cather and Jacob Davis                               */
-/* ELEC 3040/3050 - Lab 9                                      */
+/* ELEC 3040/3050 - Lab 6                                       */
+/* Outputs a counter on PC[0,3] about every second. If there is */
+/* a keypad event then it will output the key pressed over the  */
+/* PC[0,3] instead for 5 cycles. Keypresses are detected using  */
+/* an external interrupt on PA1.                                */
 /*==============================================================*/
 
 #include "STM32L1xx.h" /* Microcontroller information */
 
-/*
- * Wraps all the keypad into one structure. Row and column hold the
- * value [1,4]. The key number can be found by indexing into the keys
- * array using row and column. Event tells how long to display key value.
- */
- 
-enum port_mode {
-   Input = 0x00000000,
-   Output = 0x55555555,
-   Alternate = 0xAAAAAAAA,
-   Analog = 0xFFFFFFFF
-};
-
-enum pupd {
-   None = 0x00000000,
-   Up = 0x55555555,
-   Down = 0xAAAAAAAA
-};
-
-void setup_keypad(void);
-void setup_pwm_gen(void);
+void delay(void);
+void setup_pins(void);
+void setup_interupts(void);
+void setup_timers(void);
+void update_leds(unsigned char value);
 void setup_speed_ctr(void);
 
 double period;
 double amplitude;
+double voltage;
+volatile double avg;
+double alpha;
+int sample;
 
+/*
+ * First everything is configured/initilized. Specifically notice
+ * that all columns are grounded so keypresses can be detected.
+ * After that we enter the event loop. The idea here is that if there is
+ * an event then we want to display it for N cycles, where N is specified
+ * as the value of keypad.event. If there is no event then we will display
+ * the count instead. It was constructed this was to handle keys pressed
+ * during keypress events.
+ */
+ 
+ int window[100], position;
+ 
 int main() {
-   SET_BIT(RCC->CR,RCC_CR_HSION); // Turn on 16MHz HSI oscillator
-   while ((RCC->CR & RCC_CR_HSIRDY) == 0); // Wait until HSI ready
-   SET_BIT(RCC->CFGR, RCC_CFGR_SW_HSI); // Select HSI as system clock
+  setup_pins();
+  setup_interupts();
+  setup_timers();
+  SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
+	period = 0;
+	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC1 clock
    
-   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN); // Enable GPIOA clock
-   SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN); // Enable GPIOC clock
-   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC clock
-   
-   setup_keypad();
-   setup_pwm_gen();
    setup_speed_ctr();
-   
+   position = 0;
    period = 0;
+	 avg = 0;
+	 alpha = 2.0/(60.0 + 1.0); // Assumes a window of 30
    SET_BIT(ADC1->CR2, ADC_CR2_SWSTART);
-   
-   __enable_irq();
-   
-   while(1) {
-      asm("WFI"); // Idle forever
-   }
+
+  __enable_irq();
+
+  while(1) {
+		int sum = 0;
+//		sample = (ADC1->DR);
+//		window[position] = sample;
+//		for (int i = 0; i < 100; ++i) {
+//			sum += window[i];
+//		}
+//		
+//		position = ++position % 100;
+//		avg = (alpha*sample) + ((1-alpha) * avg);
+//		voltage = ((sum/100) * 3.15)/(4096.0);
+		
+		for(int i = 0; i<100;i++)
+		{
+			sum = sum + (ADC1->DR & 0xFFFF);
+		}
+		voltage = (sum*2.9)/(100.0*4096.0);
+  };
 }
 
-void  setup_keypad() {
-   /* Configure PA1 as input pin to listen for row lines */
-   CLEAR_BIT(GPIOA->MODER, GPIO_MODER_MODER1); // set to input mode
-   
-   /*Configure PB[0,3] as keypad row lines, input*/
-   MODIFY_REG(GPIOB->MODER, 0x000000FF, Input);
-   /*This enables the pullup resistor so we can read the row lines*/
-   MODIFY_REG(GPIOB->PUPDR, 0x000000FF, UP);
-   
-   /*Configure PB[4,7] as keypad column lines, output*/
-   MODIFY_REG(GPIOB->MODER, 0x0000FF00, Output);
-  
-   SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
-   
-   /* Configure GPIO A1 as external inturupt 1 */
-   MODIFY_REG(SYSCFG->EXTICR[0], SYSCFG_EXTICR1_EXTI1, SYSCFG_EXTICR1_EXTI1_PA);
-   
-   /* Unmask EXTI1 and set both to rising edge trigger*/
-   SET_BIT(EXTI->IMR,  EXTI_IMR_MR1);
-   SET_BIT(EXTI->FTSR, EXTI_FTSR_TR1);
-   
-   
-   NVIC_EnableIRQ(EXTI1_IRQn);
-   
-   /* Clear pending bit for EXTI1 */
-   SET_BIT(EXTI->PR, EXTI_PR_PR1);
-   NVIC_ClearPendingIRQ(EXTI1_IRQn);
-}
-
-void setup_pwm_gen() {
-   /* Change PA6 to altrnative function mode */
-   MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER6, Alternate);
-   /* Change the alternate function of PA6 to be the CC*/
-   MODIFY_REG(GPIOA->AFR[0], GPIO_AFRL_AFRL6, 0x03000000);
-   
-   /* Timer 10 */
-   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
-   TIM10->ARR = 999; //set auto reload. assumes 16MHz
-   TIM10->PSC = 159; //set prescale.
-   TIM10->CCR1 = 10; //Set compair value
-   TIM10->CNT = 0;
-   MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, TIM_CCMR1_CC1S); // Capture compair select
-   MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
-   SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin
-  
-   SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
-}
-
-void speed_controller() {
+void setup_speed_ctr() {
    /* Change PA7 to alalog mode */
-   MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, Analog);
+	 MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, (0xFFFFFFFF & GPIO_MODER_MODER7));
    
-   SET_BIT(ADC->CR2, ADC_CR2_CONT); // Enable continuous conversion
-   MODIFY_REG(ADC->SQR5, ADC_SQR5_SQ1, 0x111); // Use PA7 for sampling
-   SET_BIT(ADC->CR2, ADC_CR2_ADON); // Turn on converter
+   SET_BIT(ADC1->CR2, ADC_CR2_CONT); // Enable continuous conversion
+   MODIFY_REG(ADC1->SQR5, ADC_SQR5_SQ1, 0x7); // Use PA7 for sampling
+   SET_BIT(ADC1->CR2, ADC_CR2_ADON); // Turn on converter
 
-   while ((ADC->SR & ADC_SR_ADONS) == 0); // Wait for converter to power on
+   while ((ADC1->SR & ADC_SR_ADONS) == 0); // Wait for converter to power on
+	
 }
 
+/*
+ * Initialize GPIO pins used in the program.
+ * PA1 -> input to detect keypress
+ * PB[0,3] -> input to detect row of keypress
+ * PB[4,7] -> output to short column lines of keypad
+ * PC[0,3] -> output count/keypress
+ */
+void setup_pins () {
+  /* Configure PA1 as input pin to listen for row lines */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOAEN); // Enable GPIOA clock (bit 0)
+  CLEAR_BIT(GPIOA->MODER, GPIO_MODER_MODER1); // set to input mode
+
+  /*Configure PB[0,3] as keypad row lines, input*/
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOBEN);
+  CLEAR_BIT(GPIOB->MODER, 0x000000FF);
+  /*This enables the pullup resistor so we can read the row lines*/
+  MODIFY_REG(GPIOB->PUPDR, 0x000000FF, 0x00000055);
+  
+  /*Configure PB[4,7] as keypad column lines, output*/
+  MODIFY_REG(GPIOB->MODER, 0x0000FF00, 0x00005500);
+
+  /* Configure PC[0,3] as output pins to drive LEDs */
+  SET_BIT(RCC->AHBENR, RCC_AHBENR_GPIOCEN); // Enable GPIOC clock (bit 2) */
+  MODIFY_REG(GPIOC->MODER, 0x000000FF, 0x00000055);	
+
+  /* Configure PC[4,7] as output pins to drive LEDs */
+  MODIFY_REG(GPIOC->MODER, 0x00000F00, 0x00000500);
+  
+  /* Change PA[6] to altrnative function mode */
+  MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER6, 0x00002000);
+	
+  
+  /* Change the alternate function of PA[6] to be the CC*/
+  MODIFY_REG(GPIOA->AFR[0], GPIO_AFRL_AFRL6, 0x03000000);
+}
+
+/*
+ * Setup external inturupt on PA1 to detect a keypress.
+ */
+void setup_interupts() {
+  /* Configure GPIO A1 as external inturupt 1 */
+  CLEAR_BIT(SYSCFG->EXTICR[0], SYSCFG_EXTICR1_EXTI1);
+  SET_BIT(SYSCFG->EXTICR[0], SYSCFG_EXTICR1_EXTI1_PA);
+
+  /* Unmask EXTI1 and set both to rising edge trigger*/
+  SET_BIT(EXTI->IMR,  EXTI_IMR_MR1);
+  SET_BIT(EXTI->FTSR, EXTI_FTSR_TR1);
+	
+
+  NVIC_EnableIRQ(EXTI1_IRQn);
+
+  /* Clear pending bit for EXTI1 */
+  SET_BIT(EXTI->PR, EXTI_PR_PR1);
+
+  NVIC_ClearPendingIRQ(EXTI1_IRQn);
+}
+
+void setup_timers() {
+  RCC->CR |= RCC_CR_HSION; // Turn on 16MHz HSI oscillator
+  while ((RCC->CR & RCC_CR_HSIRDY) == 0); // Wait until HSI ready
+  RCC->CFGR |= RCC_CFGR_SW_HSI; // Select HSI as system clock
+  
+	/* Timer 10 */
+  SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
+  TIM10->ARR = 999; //set auto reload. assumes 16MHz
+  TIM10->PSC = 159; //set prescale.
+  TIM10->CCR1 = 10; //Set compair value
+  TIM10->CNT = 0;
+  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
+  MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_OC1M, 0x0060); // Active to inactive
+  SET_BIT(TIM10->CCER, TIM_CCER_CC1E); // drive output pin
+	
+  SET_BIT(TIM10->CR1, TIM_CR1_CEN); //enable counting
+}
 
 /**
  *
