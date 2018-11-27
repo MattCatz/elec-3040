@@ -22,6 +22,8 @@ double voltage;
 volatile double avg;
 double alpha;
 int sample;
+int ideal_speed = 0;
+
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -36,31 +38,45 @@ int sample;
  int window[100], position;
  
 int main() {
-  setup_pins();
-  setup_interupts();
-  setup_timers();
-  SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
+  	setup_pins();
+	setup_interupts();
+  	setup_timers();
+  	SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
 	period = 0;
 	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC1 clock
    
-  setup_speed_ctr();
+  	setup_speed_ctr();
 
-  __enable_irq();
+  	__enable_irq();
 
-  while(1) {
-		asm("nop");
-  };
+  	while(1) {
+		if (keypad.event == 1 && keypad.value < 11) {
+	   		ideal_speed = keypad.value * (TIM10->ARR + 1) / 10;
+      		keypad.event = 0;
+			data_index = 0;
+   		}
+   
+    	unsigned char running = READ_BIT(TIM9->CR1, TIM_CR1_CEN);
+    	if (keypad.event == 1 && keypad.value == 0xE) {
+			TIM9->CR1 |= (running^1) & TIM_CR1_CEN;
+			keypad.event = 0;
+    	} else if (keypad.event == 1 && keypad.value == 0xF) {
+        	counter.first = 0;
+			counter.second = 0;
+			GPIOC->BSRR = 0xFF0000;
+			keypad.event = 0;
+    	}
+  	};
 }
 
 void setup_speed_ctr() {
    /* Change PA7 to alalog mode */
-	 MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, (0xFFFFFFFF & GPIO_MODER_MODER7));
+	MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, (0xFFFFFFFF & GPIO_MODER_MODER7));
    
-   //SET_BIT(ADC1->CR2, ADC_CR2_CONT); // Enable continuous conversion
-   MODIFY_REG(ADC1->SQR5, ADC_SQR5_SQ1, 0x7); // Use PA7 for sampling
-   SET_BIT(ADC1->CR2, ADC_CR2_ADON); // Turn on converter
+   	MODIFY_REG(ADC1->SQR5, ADC_SQR5_SQ1, 0x7); // Use PA7 for sampling
+   	SET_BIT(ADC1->CR2, ADC_CR2_ADON); // Turn on converter
 
-   while ((ADC1->SR & ADC_SR_ADONS) == 0); // Wait for converter to power on
+   	while ((ADC1->SR & ADC_SR_ADONS) == 0); // Wait for converter to power on
 }
 
 /*
@@ -125,7 +141,7 @@ void setup_timers() {
   while ((RCC->CR & RCC_CR_HSIRDY) == 0); // Wait until HSI ready
   RCC->CFGR |= RCC_CFGR_SW_HSI; // Select HSI as system clock
   
-  /* Timer 9 */
+  /* Timer 9 for stopwatch*/
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM9EN); //enable clock source
   TIM9->ARR = 99;//50000-1; //set auto reload. assumes 16MHz
   TIM9->PSC = 159;//32-1; //set prescale.
@@ -133,7 +149,7 @@ void setup_timers() {
   SET_BIT(TIM9->CR1, TIM_CR1_CEN); //enable counting
   SET_BIT(TIM9->DIER, TIM_DIER_UIE); //enable interrupts
   
-  /* Timer 10 */
+  /* Timer 10 for PWM controller*/
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
   TIM10->ARR = 999; //set auto reload. assumes 16MHz
   TIM10->PSC = 159; //set prescale.
@@ -153,6 +169,10 @@ void setup_timers() {
   SET_BIT(TIM11->CR1, TIM_CR1_CEN); //enable counting
 }
 
+/**
+ * Begin stopwatch stuff
+ */
+
 struct {
   unsigned char first;
   unsigned char second;
@@ -164,40 +184,55 @@ display counter = {
 };
 
 void TIM9_IRQHandler() {
-  CLEAR_BIT(TIM9->SR, TIM_SR_UIF);
+	CLEAR_BIT(TIM9->SR, TIM_SR_UIF);
+	int output;
   
-  counter.second = (counter.second + 1) % 10;
-  GPIOC->ODR = counter.second;//GPIOC->BSRR = 0xF0000;
-  if (counter.second == 0) {
-    counter.first = (counter.first + 1) % 10;
-		GPIOC->ODR |= (0x00F0 && counter.first << 4);
-  } 
+  	counter.second = (counter.second + 1) % 10;
+	counter.first = (counter.second == 0) ? (counter.first + 1) % 10 : counter.first;
+  	output = (counter.first << 4) && counter.second;
+	
+	GPIOC->ODR |= (output && 0xFF);
  
-NVIC_ClearPendingIRQ(TIM9_IRQn);
+	NVIC_ClearPendingIRQ(TIM9_IRQn);
 }
 
+/**
+ * End stopwatch stuff
+ */
 
+/**
+ * Begin speed correction and data acquisition
+ */
 
 int data = 0;
 int data_index = 0;
 #define GRAPH_LENGTH 2000
 int graph[GRAPH_LENGTH];
 
-
 void TIM11_IRQHandler() {
-   CLEAR_BIT(TIM11->SR, TIM_SR_UIF);
+	CLEAR_BIT(TIM11->SR, TIM_SR_UIF);
 
-   SET_BIT(ADC1->CR2, ADC_CR2_SWSTART);
-   while((ADC1->SR & ADC_SR_EOC)==0);
-   data = ADC1->DR;
-   if (data_index < GRAPH_LENGTH) {
-      graph[data_index] = data;
-	    data_index++;
-   }
+   	SET_BIT(ADC1->CR2, ADC_CR2_SWSTART);
+   	while((ADC1->SR & ADC_SR_EOC)==0);
+   	data = ADC1->DR;
+	
+	/* Calculate correction needed */
+	int correction = (ideal_speed - data)*(0.2);
+	TIM10->CCR1 += correction;
+	
+	/* Data Acquisition Loop */
+   	if (data_index < GRAPH_LENGTH) {
+		graph[data_index] = data;
+		data_index++;
+   	}
    
-   TIM11->SR = ~TIM_SR_UIF;
+   TIM11->SR = TIM_SR_UIF^1;
    NVIC_ClearPendingIRQ(TIM11_IRQn);
 }
+
+/**
+ * End speed correction and data acquisition
+ */
 
 /**
  *
@@ -210,7 +245,7 @@ void TIM11_IRQHandler() {
  */
 void small_delay() {
   int i;
-  for (i=0; i<20000; i++) {
+  for (i=0; i<10; i++) {
     asm("nop");
   }
 }
@@ -258,43 +293,27 @@ matrix_keypad keypad = {
  * main event loop does not pick up the keypress.
  */
 void EXTI1_IRQHandler() {
-  /* Hanndle Pushbutton 1*/
-  /* Acknowledge interupt */
-  SET_BIT(EXTI->PR, EXTI_PR_PR1);
-			 data_index = 0;
+  	/* Hanndle Pushbutton 1*/
+  	/* Acknowledge interupt */
+  	SET_BIT(EXTI->PR, EXTI_PR_PR1);
 
-  for (decoder.column=0;decoder.column<4;decoder.column++) {
-    SET_BIT(GPIOB->BSRR, 0x000000F0);
-    SET_BIT(GPIOB->BSRR, COLUMN_MASK[decoder.column]);
-    for (decoder.row=0;decoder.row<4;decoder.row++) {
-      small_delay();
-      if (!READ_BIT(GPIOB->IDR, ROW_MASK[decoder.row])) {
-        keypad.value = decoder.keys[decoder.row][decoder.column];
-        keypad.event = 1;
-        // Cheap way to break out of nested loop
-        decoder.row = 5;
-        decoder.column = 5;
-      }
-    }
-  }
-  
-   if (keypad.event == 1 && keypad.value < 11) {
-      TIM10->CCR1 = keypad.value * (TIM10->ARR + 1) / 10;
-      keypad.event = 0;
-   }
-   
-    unsigned char running = READ_BIT(TIM9->CR1, TIM_CR1_CEN);
-    if (keypad.event == 1 && keypad.value == 0xE) {
-		    TIM9->CR1 |= (running^1) & TIM_CR1_CEN;
-		    keypad.event = 0;
-    } else if (keypad.event == 1 && keypad.value == 0xF) {
-        counter.first = 0;
-		    counter.second = 0;
-		    GPIOC->BSRR = 0xFF0000;
-		    keypad.event = ~0;
-    }
-
-	 
-  SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
-  NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  	for (decoder.column=0;decoder.column<4;decoder.column++) {
+    	SET_BIT(GPIOB->BSRR, 0x000000F0);
+    	SET_BIT(GPIOB->BSRR, COLUMN_MASK[decoder.column]);
+    	for (decoder.row=0;decoder.row<4;decoder.row++) {
+      		small_delay();
+      		if (!READ_BIT(GPIOB->IDR, ROW_MASK[decoder.row])) {
+        		keypad.value = decoder.keys[decoder.row][decoder.column];
+        		keypad.event = 1;
+        		SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
+        		NVIC_ClearPendingIRQ(EXTI1_IRQn);
+        		return;
+      		}
+    	}
+  	}
+	
+	++bounce;
+ 
+  	SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
+  	NVIC_ClearPendingIRQ(EXTI1_IRQn);
 }
