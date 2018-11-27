@@ -1,5 +1,3 @@
-% ELEC 3040
-
 clc;
 clear;
 
@@ -10,7 +8,7 @@ k = 3.1
 
 sys = tf([k],[idx 1])
 
-subplot(2,1,1)
+plot(1)
 step(sys)
 ylabel('Measured Signal')
 xlabel('Time')
