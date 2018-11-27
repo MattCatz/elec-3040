@@ -24,6 +24,51 @@ double alpha;
 int sample;
 int ideal_speed = 0;
 
+struct {
+  unsigned char row;
+  unsigned char column;
+  const unsigned char row1[4];
+  const unsigned char row2[4];
+  const unsigned char row3[4];
+  const unsigned char row4[4];
+  const unsigned char* keys[];
+} typedef keypad_decoder;
+
+struct {
+  unsigned char value;
+  unsigned char event;
+} typedef matrix_keypad;
+
+keypad_decoder decoder = {
+  .row = ~0,  //Initialize rows to MAX
+  .column = ~0, //Initialize columns to MAX
+  .row1 = {1, 2, 3, 0xA},
+  .row2 = {4, 5, 6, 0xB},
+  .row3 = {7, 8, 9, 0xC},
+  .row4 = {0xE, 0, 0xF, 0xD},
+  .keys = {decoder.row1, decoder.row2, decoder.row3, decoder.row4}
+};
+
+matrix_keypad keypad = {
+ .value = 0,
+ .event = 0,
+};
+
+int data = 0;
+int data_index = 0;
+#define GRAPH_LENGTH 2000
+int graph[GRAPH_LENGTH];
+
+struct {
+  unsigned char first;
+  unsigned char second;
+} typedef display;
+
+display counter = {
+  .first = 0,
+  .second = 0,
+};
+
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -39,39 +84,41 @@ int ideal_speed = 0;
  
 int main() {
   	setup_pins();
-	setup_interupts();
+		setup_interupts();
   	setup_timers();
   	SET_BIT(GPIOB->BSRR, 0x00F00000); //Ground all columns
-	period = 0;
-	SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC1 clock
+		period = 0;
+		SET_BIT(RCC->APB2ENR, RCC_APB2ENR_ADC1EN); // Enable ADC1 clock
    
   	setup_speed_ctr();
 
   	__enable_irq();
 
   	while(1) {
-		if (keypad.event == 1 && keypad.value < 11) {
+			if (keypad.event == 1 && keypad.value < 11) {
 	   		ideal_speed = keypad.value * (TIM10->ARR + 1) / 10;
-      		keypad.event = 0;
-			data_index = 0;
-   		}
+				TIM10->CCR1 = ideal_speed;
+      	keypad.event = 0;
+				data_index = 0;
+			}
    
     	unsigned char running = READ_BIT(TIM9->CR1, TIM_CR1_CEN);
     	if (keypad.event == 1 && keypad.value == 0xE) {
-			TIM9->CR1 |= (running^1) & TIM_CR1_CEN;
-			keypad.event = 0;
+				running ^= 1;
+				MODIFY_REG(TIM9->CR1, TIM_CR1_CEN, running);
+				keypad.event = 0;
     	} else if (keypad.event == 1 && keypad.value == 0xF) {
-        	counter.first = 0;
-			counter.second = 0;
-			GPIOC->BSRR = 0xFF0000;
-			keypad.event = 0;
+        counter.first = 0;
+				counter.second = 0;
+				GPIOC->BSRR = 0xFF0000;
+				keypad.event = 0;
     	}
   	};
 }
 
 void setup_speed_ctr() {
-   /* Change PA7 to alalog mode */
-	MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, (0xFFFFFFFF & GPIO_MODER_MODER7));
+		/* Change PA7 to alalog mode */
+		MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER7, (0xFFFFFFFF & GPIO_MODER_MODER7));
    
    	MODIFY_REG(ADC1->SQR5, ADC_SQR5_SQ1, 0x7); // Use PA7 for sampling
    	SET_BIT(ADC1->CR2, ADC_CR2_ADON); // Turn on converter
@@ -105,7 +152,7 @@ void setup_pins () {
   MODIFY_REG(GPIOC->MODER, 0x000000FF, 0x00000055);	
 
   /* Configure PC[4,7] as output pins to drive LEDs */
-  MODIFY_REG(GPIOC->MODER, 0x00000F00, 0x00000500);
+  MODIFY_REG(GPIOC->MODER, 0x0000FF00, 0x00005500);
   
   /* Change PA[6] to altrnative function mode */
   MODIFY_REG(GPIOA->MODER, GPIO_MODER_MODER6, 0x00002000);
@@ -143,7 +190,7 @@ void setup_timers() {
   
   /* Timer 9 for stopwatch*/
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM9EN); //enable clock source
-  TIM9->ARR = 99;//50000-1; //set auto reload. assumes 16MHz
+  TIM9->ARR = 9999;//50000-1; //set auto reload. assumes 16MHz
   TIM9->PSC = 159;//32-1; //set prescale.
   TIM9->CNT = 0;
   SET_BIT(TIM9->CR1, TIM_CR1_CEN); //enable counting
@@ -173,25 +220,16 @@ void setup_timers() {
  * Begin stopwatch stuff
  */
 
-struct {
-  unsigned char first;
-  unsigned char second;
-} typedef display;
-
-display counter = {
-  .first = 0,
-  .second = 0,
-};
-
 void TIM9_IRQHandler() {
 	CLEAR_BIT(TIM9->SR, TIM_SR_UIF);
 	int output;
   
   	counter.second = (counter.second + 1) % 10;
 	counter.first = (counter.second == 0) ? (counter.first + 1) % 10 : counter.first;
-  	output = (counter.first << 4) && counter.second;
+  	output = (counter.first << 4) | counter.second;
 	
-	GPIOC->ODR |= (output && 0xFF);
+	GPIOC->ODR &= (GPIOC->ODR & ~0xFF);
+	GPIOC->ODR |= (output & 0xFF);
  
 	NVIC_ClearPendingIRQ(TIM9_IRQn);
 }
@@ -204,11 +242,6 @@ void TIM9_IRQHandler() {
  * Begin speed correction and data acquisition
  */
 
-int data = 0;
-int data_index = 0;
-#define GRAPH_LENGTH 2000
-int graph[GRAPH_LENGTH];
-
 void TIM11_IRQHandler() {
 	CLEAR_BIT(TIM11->SR, TIM_SR_UIF);
 
@@ -217,8 +250,8 @@ void TIM11_IRQHandler() {
    	data = ADC1->DR;
 	
 	/* Calculate correction needed */
-	int correction = (ideal_speed - data)*(0.2);
-	TIM10->CCR1 += correction;
+	//int correction = (ideal_speed - data)*(0.2);
+	//TIM10->CCR1 += correction;
 	
 	/* Data Acquisition Loop */
    	if (data_index < GRAPH_LENGTH) {
@@ -249,36 +282,6 @@ void small_delay() {
     asm("nop");
   }
 }
-
-struct {
-  unsigned char row;
-  unsigned char column;
-  const unsigned char row1[4];
-  const unsigned char row2[4];
-  const unsigned char row3[4];
-  const unsigned char row4[4];
-  const unsigned char* keys[];
-} typedef keypad_decoder;
-
-struct {
-  unsigned char value;
-  unsigned char event;
-} typedef matrix_keypad;
-
-keypad_decoder decoder = {
-  .row = ~0,  //Initialize rows to MAX
-  .column = ~0, //Initialize columns to MAX
-  .row1 = {1, 2, 3, 0xA},
-  .row2 = {4, 5, 6, 0xB},
-  .row3 = {7, 8, 9, 0xC},
-  .row4 = {0xE, 0, 0xF, 0xD},
-  .keys = {decoder.row1, decoder.row2, decoder.row3, decoder.row4}
-};
-
-matrix_keypad keypad = {
- .value = 0,
- .event = 0,
-};
 
  const int COLUMN_MASK[] = {GPIO_BSRR_BR_4, GPIO_BSRR_BR_5, GPIO_BSRR_BR_6, GPIO_BSRR_BR_7};
  const int ROW_MASK[] = {GPIO_IDR_IDR_0, GPIO_IDR_IDR_1, GPIO_IDR_IDR_2, GPIO_IDR_IDR_3};
