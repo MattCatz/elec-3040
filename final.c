@@ -69,6 +69,9 @@ display counter = {
   .second = 0,
 };
 
+int target_input[] = {0, 3970,4640,5310,5980,6650,7320,7990,8660,9330,10000};
+int target_output[] = {0, 540, 814, 1088, 1362, 1636, 1910, 2184, 2458, 2732, 3006};
+
 
 /*
  * First everything is configured/initilized. Specifically notice
@@ -81,6 +84,7 @@ display counter = {
  */
  
  int window[100], position;
+int timer_reset = 0;
  
 int main() {
   	setup_pins();
@@ -93,11 +97,13 @@ int main() {
   	setup_speed_ctr();
 
   	__enable_irq();
+	
+		TIM10->CCR1 = 1636;
 
   	while(1) {
 			if (keypad.event == 1 && keypad.value < 11) {
-	   		ideal_speed = keypad.value * (TIM10->ARR + 1) / 10;
-				TIM10->CCR1 = ideal_speed;
+	   		ideal_speed = target_input[keypad.value];
+				//TIM10->CCR1 = 0;
       	keypad.event = 0;
 				data_index = 0;
 			}
@@ -108,6 +114,7 @@ int main() {
 				MODIFY_REG(TIM9->CR1, TIM_CR1_CEN, running);
 				keypad.event = 0;
     	} else if (keypad.event == 1 && keypad.value == 0xF) {
+				timer_reset = 1;
         counter.first = 0;
 				counter.second = 0;
 				GPIOC->BSRR = 0xFF0000;
@@ -198,8 +205,8 @@ void setup_timers() {
   
   /* Timer 10 for PWM controller*/
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM10EN); //enable clock source
-  TIM10->ARR = 999; //set auto reload. assumes 16MHz
-  TIM10->PSC = 159; //set prescale.
+  TIM10->ARR = 9999; //set auto reload. assumes 16MHz
+  TIM10->PSC = 15; //set prescale.
   TIM10->CCR1 = 10; //Set compair value
   TIM10->CNT = 0;
   MODIFY_REG(TIM10->CCMR1, TIM_CCMR1_CC1S, 0x0000); // Capture compair select
@@ -209,8 +216,8 @@ void setup_timers() {
 	
   /* Timer 11 */
   SET_BIT(RCC->APB2ENR, RCC_APB2ENR_TIM11EN); //enable clock source
-  TIM11->ARR = 99; //5000-1; //set auto reload. assumes 16MHz
-  TIM11->PSC = 159; //32-1; //set prescale.
+  TIM11->ARR = 9999; //5000-1; //set auto reload. assumes 16MHz
+  TIM11->PSC = 15; //32-1; //set prescale.
   TIM11->CNT=0;
   SET_BIT(TIM11->DIER, TIM_DIER_UIE); //enable interrupts
   SET_BIT(TIM11->CR1, TIM_CR1_CEN); //enable counting
@@ -224,9 +231,15 @@ void TIM9_IRQHandler() {
 	CLEAR_BIT(TIM9->SR, TIM_SR_UIF);
 	int output;
   
-  	counter.second = (counter.second + 1) % 10;
-	counter.first = (counter.second == 0) ? (counter.first + 1) % 10 : counter.first;
+	if (timer_reset != 1) {
+		  	counter.second = (counter.second + 1) % 10;
+		counter.first = (counter.second == 0) ? (counter.first + 1) % 10 : counter.first;
   	output = (counter.first << 4) | counter.second;
+		
+	}
+	
+	timer_reset = 0;
+
 	
 	GPIOC->ODR &= (GPIOC->ODR & ~0xFF);
 	GPIOC->ODR |= (output & 0xFF);
@@ -250,8 +263,16 @@ void TIM11_IRQHandler() {
    	data = ADC1->DR;
 	
 	/* Calculate correction needed */
-	//int correction = (ideal_speed - data)*(0.2);
-	//TIM10->CCR1 += correction;
+//	int correction = (data - target_output[keypad.value])*(0.2);
+//	TIM10->CCR1 += correction;
+	
+	if (data < target_output[keypad.value] && TIM10->CCR1 < 10000) {
+		TIM10->CCR1++;
+	}
+	
+	if (data > target_output[keypad.value] && TIM10->CCR1 > 0) {
+		TIM10->CCR1--;
+	}
 	
 	/* Data Acquisition Loop */
    	if (data_index < GRAPH_LENGTH) {
